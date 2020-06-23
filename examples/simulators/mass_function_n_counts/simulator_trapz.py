@@ -57,17 +57,16 @@ class Model():
                                       wa=0, T_CMB=2.7, transfer_function='bbks',mass_function='tinker')
         
         return cosmo_ccl
-    
-    def halo_mass_function(self, theta, masses, z):
-        cosmo_ccl = self.cosmo(theta)
-        scale_fact_a = 1/(1+z)
-        
+
+    def halo_mass_function(cosmo_ccl, masses, z):
+        scale_fact_a = 1 / (1 + z)
+
         # using Sheth et al. (1999) halo mass function - but we could extend it to other halo mass functions
         mass_funct = ccl.halos.hmfunc.MassFuncSheth99(cosmo_ccl)
-        
+
         # calculate halo mass function for a given redshift and a given range of masses
-        dn_dM = mass_funct.get_mass_function(cosmo_ccl, masses, scale_fact_a)
-        
+        dn_dM = np.array([mass_funct.get_mass_function(cosmo_ccl, masses, a) for a in scale_fact_a])
+
         return dn_dM
     
     # integrate halo mass function 
@@ -130,47 +129,49 @@ class Model():
         integral_m = np.trapz(dN_dlog10Mdz, log10masses_steps)
         return integral_m
 
+    def n_counts_trapz_integral(self, cosmo_ccl, z_steps, mass_grid, theta):
 
-    def n_counts_trapz_integral(self, z_min, z_max, log10mass_min, log10mass_max, theta, n_steps_z = 100, n_steps_masses = 1000):
+        H0 = 100 * theta[3]
+        c = ccl.physical_constants.CLIGHT * 1e-3  # in km/s
 
-        z_steps = np.linspace(z_min, z_max, num = n_steps_z)
-        log10masses_steps = np.linspace(log10mass_min, log10mass_max, num = n_steps_masses)
-        N_counts_dz = np.zeros(n_steps_z)
+        scale_fact_a = 1 / (1 + z_steps)
+        H_z = H0 * ccl.background.h_over_h0(cosmo_ccl, scale_fact_a)
+        factor = 4 * np.pi * (c / H_z) * (ccl.background.comoving_radial_distance(cosmo_ccl, scale_fact_a) ** 2)
 
-        cosmo_ccl = self.cosmo(theta)
-        H0 = 100*theta[3]
-        c = ccl.physical_constants.CLIGHT*1e-3 # in km/s
+        dN_dlog10Mdz = self.halo_mass_function(cosmo_ccl, mass_grid.flatten(), z_steps)
+        dN_dlog10Mdz = dN_dlog10Mdz.reshape((mass_grid.shape[0], mass_grid.shape[1], z_steps.shape[0]))
+        N_counts_dz = factor[np.newaxis, np.newaxis, :] * np.trapz(dN_dlog10Mdz, mass_grid[:, :, np.newaxis], axis=1)
 
-        scale_fact_a = 1/(1+z_steps)
-        H_z = H0*ccl.background.h_over_h0(cosmo_ccl, scale_fact_a)
-        factor = 4*np.pi*(c/H_z)*(ccl.background.comoving_radial_distance(cosmo_ccl, scale_fact_a)**2)
-
-        for i in range(len(z_steps)):
-
-            dN_dlog10Mdz = self.halo_mass_function(theta, 10**log10masses_steps, z_steps[i])
-            N_counts_dz[i] = factor[i]*np.trapz(dN_dlog10Mdz, log10masses_steps)
-
-        # N_counts_dz[i] = factor[i]*np.trapz(dN_dlog10Mdz, log10masses_steps) - take it out of loop
-        integral_trapz = np.trapz(N_counts_dz, z_steps)    
+        integral_trapz = np.trapz(N_counts_dz, z_steps, axis=-1)
 
         return integral_trapz
 
-    def all_n_counts_trapz(self, z_min, z_max, log10masses, theta):
-        N_counts_true = np.zeros((len(log10masses)-1, len(z_min)))
-        
-        t1 = time.process_time()
-        for i in range(len(log10masses) - 1):
-            for j in range(len(z_min)):
-                N_counts_temp = self.n_counts_trapz_integral(z_min[j], z_max[j], log10masses[i], log10masses[i+1], theta)
-                N_counts_true[i][j] = N_counts_temp
-                
-                # print(i, j)
+    def all_n_counts_trapz(self, z_min, z_max, log10masses, theta, n_steps_z=100, n_steps_masses=1000):
+        N_counts_true = np.zeros((log10masses.shape[1], len(z_min)))
+
+        log10mass_mins = log10masses[0]
+        log10mass_maxs = log10masses[1]
+        nm_bins = log10mass_maxs.shape[0]
+        delta_bin = log10mass_maxs - log10mass_mins
+        mass_grid = 10 ** (log10mass_mins[:, np.newaxis] +
+                           np.linspace(0, 1, n_steps_masses) * delta_bin[:, np.newaxis])
+
+        cosmo_ccl = self.cosmo(theta)
+
+        #     t1 = time.process_time()
+        for i in range(len(z_min)):
+            z_steps = np.linspace(z_min[i], z_max[i], num=n_steps_z)
+
+            N_counts_temp = self.n_counts_trapz_integral(cosmo_ccl, z_steps, mass_grid, theta)
+            N_counts_true[:, i] = N_counts_temp
+
+            # print(i, j)
             print(i)
-        t2 = time.process_time()
-        print(str(t2-t1) + ' s')
-        
-        shape_new = N_counts_true.shape[0]*N_counts_true.shape[1]
-        N_counts_true = N_counts_true.reshape(shape_new)        
+        #     t2 = time.process_time()
+        #     print(str(t2-t1) + ' s')
+
+        shape_new = N_counts_true.shape[0] * N_counts_true.shape[1]
+        N_counts_true = N_counts_true.reshape(shape_new)
         return N_counts_true
     
 
