@@ -89,7 +89,7 @@ class Model():
         factor = 4 * np.pi * (c / H_z) * (ccl.background.comoving_radial_distance(cosmo_ccl, scale_fact_a) ** 2)
         
         dN_dlog10Mdz = self.halo_mass_function(cosmo_ccl, mass_grid.flatten(), z_steps)
-        dN_dlog10Mdz = dN_dlog10Mdz.reshape((mass_grid.shape[0], mass_grid.shape[1], z_steps.shape[0]))
+        dN_dlog10Mdz = dN_dlog10Mdz.T.reshape((mass_grid.shape[0], mass_grid.shape[1], z_steps.shape[0]), order='C')
         N_counts_dz = factor[np.newaxis, np.newaxis, :] * np.trapz(dN_dlog10Mdz, np.log10(mass_grid[:, :, np.newaxis]), axis=1)
         
         integral_trapz = np.trapz(N_counts_dz, z_steps, axis=-1)
