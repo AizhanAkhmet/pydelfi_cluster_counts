@@ -7,7 +7,8 @@ import time as time
 
 class Model():
 
-    def __init__(self, data_path = 'N_counts_random_data.npy'):
+    def __init__(self, log10masses = np.linspace(14, 15.5, num = 4), z_min = np.linspace(0.1, 0.9, num = 5), 
+                 z_max = np.linspace(0.2, 1.0, num = 5), data_path = 'N_counts_random_data.npy'):
 
         
         ## import data
@@ -22,16 +23,16 @@ class Model():
         self.ndata = len(self.data)
         
          # make them into specified params later
-        self.log10masses = np.linspace(14, 16, num = 5)
-        self.z_min = np.linspace(0.1, 0.9, num = 5)
-        self.z_max = np.linspace(0.2, 1.0, num = 5)
+        self.log10masses = log10masses
+        self.z_min = z_min
+        self.z_max = z_max
         
         # Compute expected values
         self.cosmo_object = self.cosmo(self.theta_fiducial)
         self.hmf_object = self.halo_mass_function_object(self.theta_fiducial)
         
         # FOR NOW
-        self.N_counts = self.n_counts_trapz_all(self.theta_fiducial, self.z_min, self.z_max, self.log10masses)
+        self.N_counts = self.n_counts_trapz_all(self.theta_fiducial, self.z_min, self.z_max,  self.log10masses)
         #self.N_counts = np.array([[1.78484613e+04, 5.76969893e+04, 7.91958165e+04, 7.60278893e+04, 5.88511940e+04],
         #[2.53148842e+03, 6.50855639e+03, 6.79903632e+03, 4.77688556e+03, 2.60820123e+03],
          #       [1.41327071e+02, 2.40973371e+02, 1.54407289e+02, 6.19683804e+01, 1.80223466e+01],

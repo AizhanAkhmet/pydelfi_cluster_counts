@@ -7,51 +7,52 @@ import time as time
 
 class Model():
 
-    def __init__(self, data_path = 'N_counts_random_data.npy'):
+    def __init__(self, log10masses = np.linspace(14, 15.5, num = 4), z_min = np.linspace(0.1, 0.9, num = 5), 
+                 z_max = np.linspace(0.2, 1.0, num = 5), data_path = 'N_counts_random_data.npy'):
 
         
         ## import data
         self.data = np.load(data_path)
         
-        #  Omega_{cdm}h^{2}, Omega_{b}h^{2}, sigma_{8}, h, n_{s}, w_{0}
-        self.theta_fiducial = np.array([0.1197, 0.02222, 0.76, 0.69, 0.9655, -1])
+        #  Omega_{cdm}h^{2}, Omega_{b}h^{2}, sigma_{8}
+        self.theta_fiducial = np.array([0.1197, 0.02222, 0.76])
+        self.h = 0.69
         self.npar = len(self.theta_fiducial)
         
         # N data points 
         self.ndata = len(self.data)
         
          # make them into specified params later
-        self.log10masses = np.linspace(14, 16, num = 5)
-        self.z_min = np.linspace(0.1, 0.9, num = 5)
-        self.z_max = np.linspace(0.2, 1.0, num = 5)
+        self.log10masses = log10masses
+        self.log10masses_2d = np.stack((log10masses[:-1], log10masses[1:]))
+        self.z_min = z_min
+        self.z_max = z_max
         
         # Compute expected values
         
         # FOR NOW
-        # self.N_counts = self.all_n_counts(self.z_min, self.z_max, self.log10masses, self.theta_fiducial)
-        self.N_counts = np.array([[1.78484613e+04, 5.76969893e+04, 7.91958165e+04, 7.60278893e+04, 5.88511940e+04],
-                                [2.53148842e+03, 6.50855639e+03, 6.79903632e+03, 4.77688556e+03, 2.60820123e+03],
-                                [1.41327071e+02, 2.40973371e+02, 1.54407289e+02, 6.19683804e+01, 1.80223466e+01],
-                                [1.15793270e+00, 8.97133179e-01, 2.22000351e-01, 2.95440371e-02, 2.45071739e-03]])
-        shape_new = self.N_counts.shape[0]*self.N_counts.shape[1]
-        self.N_counts = self.N_counts.reshape(shape_new) 
+        self.N_counts = self.all_n_counts_trapz(self.z_min, self.z_max, self.log10masses_2d, self.theta_fiducial)
+        #self.N_counts = np.array([[1.78484613e+04, 5.76969893e+04, 7.91958165e+04, 7.60278893e+04, 5.88511940e+04],
+         #                       [2.53148842e+03, 6.50855639e+03, 6.79903632e+03, 4.77688556e+03, 2.60820123e+03],
+          #                      [1.41327071e+02, 2.40973371e+02, 1.54407289e+02, 6.19683804e+01, 1.80223466e+01],
+           #                     [1.15793270e+00, 8.97133179e-01, 2.22000351e-01, 2.95440371e-02, 2.45071739e-03]])
+        #shape_new = self.N_counts.shape[0]*self.N_counts.shape[1]
+        #self.N_counts = self.N_counts.reshape(shape_new) 
         
         
     # Cosmology modulus
-    def cosmo(self, theta):
+    def cosmo(self, theta, h=0.69):
         # create a flat cosmology with massive neutrinos and some other default params
         
         # $\Omega_{m}h^{2} = \Omega_{cdm}h^{2} + \Omega_{b}h^{2}$, $\sigma_{8}$, $h$, $n_{s}$, $w_{0}$}
-        Omega_cdm = theta[0]/(theta[3]**2)
-        Omega_b = theta[1]/(theta[3]**2)
+        Omega_cdm = theta[0]/(h**2)
+        Omega_b = theta[1]/(h**2)
         sigma8 = theta[2]
-        h = theta[3]
-        n_s = theta[4]
-        w0 = theta[5]
+        
         
         # setting up different cosmology configuration to match benchmarks and keep CLASS from crashing.
         cosmo_ccl = ccl.Cosmology(Omega_c= Omega_cdm, Omega_b= Omega_b, sigma8= sigma8,
-                                      h= h, n_s= n_s, w0= w0,
+                                      h= h, n_s= 0.9655, w0= -1,
                                       Omega_g=0, Omega_k=0,
                                       Neff=0, m_nu=0.0,
                                       wa=0, T_CMB=2.7, transfer_function='bbks',mass_function='tinker')
@@ -81,7 +82,7 @@ class Model():
         return integral_m
     
     def n_counts_trapz_integral(self, cosmo_ccl, z_steps, mass_grid, theta):
-        H0 = 100 * theta[3]
+        H0 = 100 * self.h
         c = ccl.physical_constants.CLIGHT * 1e-3  # in km/s
         
         scale_fact_a = 1 / (1 + z_steps)
@@ -115,7 +116,7 @@ class Model():
             N_counts_true[:, i] = N_counts_temp
             
         t2 = time.process_time()
-        print(str(t2-t1) + ' s')
+        #print(str(t2-t1) + ' s')
 
         shape_new = N_counts_true.shape[0] * N_counts_true.shape[1]
         N_counts_true = N_counts_true.reshape(shape_new)
@@ -129,7 +130,7 @@ class Model():
         np.random.seed(seed)
 
         
-        N_counts_true = self.all_n_counts_trapz(self.z_min, self.z_max, self.log10masses, theta)
+        N_counts_true = self.all_n_counts_trapz(self.z_min, self.z_max, self.log10masses_2d, theta)
         N_counts_random = np.random.poisson(N_counts_true)
         
     

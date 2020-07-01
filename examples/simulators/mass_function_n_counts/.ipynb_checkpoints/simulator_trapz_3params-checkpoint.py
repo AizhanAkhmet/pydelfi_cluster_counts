@@ -163,7 +163,7 @@ class Model():
         N_counts_true = N_counts_true.reshape(shape_new)
         
         t2 = time.process_time()
-        print('total: ' + str(t2-t1) + ' s')
+        # print('total: ' + str(t2-t1) + ' s')
         return N_counts_true
     
     ############### ~~~~~~~~~~~ END NEW FUNCTIONS ~~~~~~~~~~  ####################
