@@ -4,21 +4,24 @@ import scipy.integrate as integrate
 import pyccl as ccl
 import time as time
 #import simulators.jla_supernovae.jla_parser as jla_parser
+from scipy.interpolate import RectBivariateSpline
 
 class Model():
 
-    def __init__(self, log10masses = np.linspace(14, 15.5, num = 4), z_min = np.linspace(0.1, 0.9, num = 5), z_max = np.linspace(0.2, 1.0, num = 5), 
-                 theta_fiducial = np.array([0.1197, 0.76]), theta_fiducial_mass_calibration = np.array([1.8, 0., 0., 2.4e-10, 1e14, 0., 0., 0.127])):
+    def __init__(self, log10masses = np.linspace(14, 15.5, num = 4), z_min = np.linspace(0.1, 0.9, num = 5), 
+                 z_max = np.linspace(0.2, 1.0, num = 5), data_path = 'N_counts_random_data.npy'):
 
         
+        ## import data
+        self.data = np.load(data_path)
         
-        #  Omega_{cdm}h^{2}, Omega_{b}h^{2}
-        self.theta_fiducial = theta_fiducial
-        self.theta_fiducial_mass_calibration = theta_fiducial_mass_calibration
+        #  Omega_{cdm}h^{2}, Omega_{b}h^{2}, sigma_{8}
+        self.theta_fiducial = np.array([0.1197, 0.76])
         self.h = 0.69
-        self.npar = len(self.theta_fiducial)+len(self.theta_fiducial_mass_calibration)
+        self.npar = len(self.theta_fiducial)
         
-        
+        # N data points 
+        self.ndata = len(self.data)
         
          # make them into specified params later
         self.log10masses = log10masses
@@ -30,6 +33,12 @@ class Model():
         
         # FOR NOW
         self.N_counts = self.all_n_counts_trapz(self.z_min, self.z_max, self.log10masses_2d, self.theta_fiducial)
+        #self.N_counts = np.array([[1.78484613e+04, 5.76969893e+04, 7.91958165e+04, 7.60278893e+04, 5.88511940e+04],
+         #                       [2.53148842e+03, 6.50855639e+03, 6.79903632e+03, 4.77688556e+03, 2.60820123e+03],
+          #                      [1.41327071e+02, 2.40973371e+02, 1.54407289e+02, 6.19683804e+01, 1.80223466e+01],
+           #                     [1.15793270e+00, 8.97133179e-01, 2.22000351e-01, 2.95440371e-02, 2.45071739e-03]])
+        #shape_new = self.N_counts.shape[0]*self.N_counts.shape[1]
+        #self.N_counts = self.N_counts.reshape(shape_new) 
         
         
     # Cosmology modulus
@@ -55,9 +64,8 @@ class Model():
     def halo_mass_function(self, cosmo_ccl, masses, z):
         scale_fact_a = 1 / (1 + z)
         
-        # using Tinker et al. (2008) halo mass function - but we could extend it to other halo mass functions
-        hm_def = ccl.halos.MassDef(500, 'critical')
-        mass_funct = ccl.halos.MassFuncTinker08(cosmo_ccl, mass_def=hm_def)
+        # using Sheth et al. (1999) halo mass function - but we could extend it to other halo mass functions
+        mass_funct = ccl.halos.hmfunc.MassFuncTinker08(cosmo_ccl)
         
         dn_dM = np.array([mass_funct.get_mass_function(cosmo_ccl, masses, a) for a in scale_fact_a])
         return dn_dM
@@ -117,95 +125,87 @@ class Model():
 
     ############# ~~~~~~~~~~~~ FOR SIMULATIONS ~~~~~~~~~~~~ #############
     # Generate realisation of N counts
-    def simulation(self, theta, seed):
+    def simulation(self, theta, seed, pr = False):
         
         # Set the seed
         np.random.seed(seed)
-        
-        theta_cosmo = theta[:len(self.theta_fiducial)]
-        theta_mass_calibration = theta[len(self.theta_fiducial):]
 
-        
-        N_counts_true, cosmo_ccl = self.all_n_counts_trapz(self.z_min, self.z_max, self.log10masses_2d, theta_cosmo)
+        t1 = time.process_time()
+        N_counts_true, cosmo_ccl = self.all_n_counts_trapz(self.z_min, self.z_max, self.log10masses_2d, theta)
         N_counts_true = np.random.poisson(N_counts_true)
         #N_counts_true = np.round(N_counts_true).astype(int)
+        t2 = time.process_time()
+        if pr == True:
+            print('time to compute true counts: '+ str(t2-t1))
         
+        t1 = time.process_time()
         results = [self.get_Mz_array(cosmo_ccl, seed, N_counts_true[i], self.z_min[i], self.z_max[i], self.log10masses[0], self.log10masses[-1]) 
                    for i in np.arange(len(N_counts_true))]
+        t2 = time.process_time()
+        if pr == True:
+            print('time to create a catalogue: '+ str(t2-t1))
         
-        results = np.concatenate(results)
+        t1 = time.process_time()
+        results_bins = [self.get_counts(results[i][:, 0]) for i in np.arange(len(results))]
+        results_bins = np.concatenate(results_bins).reshape((5, 3)).T.flatten()
+        t2 = time.process_time()
+        if pr == True:
+            print('time to bin a catalogue: '+ str(t2-t1))
         
-        mean_Y_500, sigma_logY_500 = self.compute_mass_calibration_params_array(cosmo_ccl, theta_mass_calibration, results[:, 0], results[:, 1])
-        Y_500_draws = np.random.lognormal(np.log(mean_Y_500), sigma_logY_500, len(sigma_logY_500))
-        
-        # Y_500_draws = np.array([self.get_Y500(mean_Y_500[i], sigma_logY_500[i]) for i in np.arange(len(sigma_logY_500))])
-        return  Y_500_draws
+        return results_bins
     
     ############# ~~~~~~~~~~~~ FOR MOCK (M, z) PAIRS ~~~~~~~~~~~~ #############
-    def get_Mz_array(self, cosmo_ccl, seed, N, z_min, z_max, M_min, M_max, n_grid_z= 1000, n_grid_M = 1000): #n_grid_z= 1000, n_grid_M = 5000):
-    
+    def get_Mz_array(self, cosmo_ccl, seed, N, z_min, z_max, M_min, M_max, n_grid_z= 20, n_grid_z_fine = 2000, 
+                     n_grid_M= 1000, n_grid_M_fine = 10000):
+        
         np.random.seed(seed) 
         
         z_array = np.linspace(z_min, z_max, num = n_grid_z)
         masses = np.logspace(M_min, M_max, num =  n_grid_M)
-        z_array_flat = np.repeat(z_array.reshape(len(z_array), 1), len(masses), axis = 1).flatten()
-        masses_flat = np.repeat(masses.reshape(1, len(masses)), len(z_array), axis = 0).flatten()
         
+        mass_funct = ccl.halos.hmfunc.MassFuncTinker08(cosmo_ccl)
+        hmf = self.halo_mass_function2(mass_funct, cosmo_ccl, masses, z_array)
         
-        hmf = self.halo_mass_function(cosmo_ccl, masses, z_array)
-        hmf_sums = hmf.sum(axis = 1, keepdims= True)
-        prob_norm_M_z = hmf/hmf_sums
+        z_array_fine = np.linspace(z_min, z_max, num = n_grid_z_fine)
+        masses_fine = np.logspace(M_min, M_max, num = n_grid_M_fine)
+    
+        interp_spline = RectBivariateSpline(z_array, masses, hmf)
+        hmf_fine = interp_spline(z_array_fine, masses_fine)
+        hmf_sums = hmf_fine.sum(axis = 1, keepdims= True)
+        prob_norm_M_z = hmf_fine/hmf_sums
         
-        prob_z = np.ones(len(z_array))
-        prob_z = (prob_z/np.sum(prob_z)).reshape(len(z_array), 1)
-        prob_z = np.repeat(prob_z, len(masses), axis = 1)
-        
-        prob_norm_Mz = prob_norm_M_z*prob_z
-        prob_norm_Mz = prob_norm_Mz/np.sum(prob_norm_Mz)
+        prob_norm_Mz = prob_norm_M_z/np.sum(prob_norm_M_z)
         prob_norm_Mz_flat = prob_norm_Mz.flatten()
         
         indices_array = np.arange(len(prob_norm_Mz_flat))
         indices_values = np.random.choice(indices_array, size = N, p = prob_norm_Mz_flat, replace = False)
+    
+        m_indices_values = indices_values%n_grid_M_fine
+        z_indices_values = indices_values//n_grid_M_fine
         
-        masses_vals = np.take(masses_flat, indices_values)
-        z_vals = np.take(z_array_flat, indices_values)
+        masses_vals = np.take(masses_fine, m_indices_values)
+        z_vals = np.take(z_array_fine, z_indices_values)
         
         return np.stack((masses_vals, z_vals)).T
     
-    def get_M_vals(self, masses, hmf_norm, size):
+    
+    def halo_mass_function2(self, mass_funct, cosmo_ccl, masses, z):
+        scale_fact_a = 1 / (1 + z)
         
-        M_values = np.random.choice(masses, size = size, p = hmf_norm)
-        return M_values
+        # using Sheth et al. (1999) halo mass function - but we could extend it to other halo mass functions
+        # mass_funct = ccl.halos.hmfunc.MassFuncTinker08(cosmo_ccl)
+        
+        dn_dM = np.array([mass_funct.get_mass_function(cosmo_ccl, masses, a) for a in scale_fact_a])
+        return dn_dM
     
-    def compute_mass_calibration_params_array(self, cosmo_ccl, theta_mass_calibration, M_500, z):
-        t1 = time.process_time()
-        alpha_Y = theta_mass_calibration[0]
-        beta_Y = theta_mass_calibration[1]
-        gamma_Y = theta_mass_calibration[2]
-
-        Y_star = theta_mass_calibration[3]
-        M_star = theta_mass_calibration[4]
-
-        alpha_sigma = theta_mass_calibration[5]
-        gamma_sigma = theta_mass_calibration[6]
-        sigma_logY0 = theta_mass_calibration[7]
-
-        scale_fact_a = 1/(1+z)
-
-        E_z = (ccl.background.h_over_h0(cosmo_ccl, scale_fact_a)**(2/3))
-        D_A_z = (ccl.background.comoving_radial_distance(cosmo_ccl, scale_fact_a)/100)**(-2)
-
-        mean_Y_500 = Y_star*((M_500/M_star)**alpha_Y)*np.exp(beta_Y*(np.log(M_500/M_star)**2))*((1+z)**gamma_Y)*E_z*D_A_z
-
-        sigma_logY_500 = sigma_logY0*((M_500/M_star)**alpha_sigma)*((1+z)**gamma_sigma)
-
-        t2 = time.process_time()
-        #print(t2 - t1)
-        return mean_Y_500, sigma_logY_500
-    
-    def get_Y500(self, mean_Y_500, sigma_logY_500):
-        return np.random.lognormal(mean_Y_500, sigma_logY_500, 1)[0]
-
+    def get_counts(self, arr_m):
+        count_1 = len(arr_m[(arr_m >= 10**(14.0)) & (arr_m <10**(14.5))])
+        count_2 = len(arr_m[(arr_m >= 10**(14.5)) & (arr_m <10**(15.0))])
+        count_3 = len(arr_m[(arr_m >= 10**(15.0))])
+        return np.array([count_1, count_2, count_3])
+        
+        
+   
 
 
 

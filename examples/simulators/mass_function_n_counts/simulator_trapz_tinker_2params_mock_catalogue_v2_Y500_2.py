@@ -7,18 +7,19 @@ import time as time
 
 class Model():
 
-    def __init__(self, log10masses = np.linspace(14, 15.5, num = 4), z_min = np.linspace(0.1, 0.9, num = 5), z_max = np.linspace(0.2, 1.0, num = 5), 
-                 theta_fiducial = np.array([0.1197, 0.76]), theta_fiducial_mass_calibration = np.array([1.8, 0., 0., 2.4e-10, 1e14, 0., 0., 0.127])):
+    def __init__(self, log10masses = np.linspace(14, 15.5, num = 4), z_min = np.linspace(0.1, 0.9, num = 5), 
+                 z_max = np.linspace(0.2, 1.0, num = 5),
+                 theta_fiducial = np.array([0.1197, 0.76]), 
+                 theta_fiducial_mass_calibration = np.array([1.8, 0., 0., 2.4e-10, 1e14, 0., 0., 0.127])):
 
         
         
-        #  Omega_{cdm}h^{2}, Omega_{b}h^{2}
+        #  Omega_{cdm}h^{2}, Omega_{b}h^{2}, sigma_{8}
         self.theta_fiducial = theta_fiducial
         self.theta_fiducial_mass_calibration = theta_fiducial_mass_calibration
+        
         self.h = 0.69
         self.npar = len(self.theta_fiducial)+len(self.theta_fiducial_mass_calibration)
-        
-        
         
          # make them into specified params later
         self.log10masses = log10masses
@@ -30,6 +31,12 @@ class Model():
         
         # FOR NOW
         self.N_counts = self.all_n_counts_trapz(self.z_min, self.z_max, self.log10masses_2d, self.theta_fiducial)
+        #self.N_counts = np.array([[1.78484613e+04, 5.76969893e+04, 7.91958165e+04, 7.60278893e+04, 5.88511940e+04],
+         #                       [2.53148842e+03, 6.50855639e+03, 6.79903632e+03, 4.77688556e+03, 2.60820123e+03],
+          #                      [1.41327071e+02, 2.40973371e+02, 1.54407289e+02, 6.19683804e+01, 1.80223466e+01],
+           #                     [1.15793270e+00, 8.97133179e-01, 2.22000351e-01, 2.95440371e-02, 2.45071739e-03]])
+        #shape_new = self.N_counts.shape[0]*self.N_counts.shape[1]
+        #self.N_counts = self.N_counts.reshape(shape_new) 
         
         
     # Cosmology modulus
@@ -55,9 +62,9 @@ class Model():
     def halo_mass_function(self, cosmo_ccl, masses, z):
         scale_fact_a = 1 / (1 + z)
         
-        # using Tinker et al. (2008) halo mass function - but we could extend it to other halo mass functions
         hm_def = ccl.halos.MassDef(500, 'critical')
         mass_funct = ccl.halos.MassFuncTinker08(cosmo_ccl, mass_def=hm_def)
+        #mass_funct = ccl.halos.hmfunc.MassFuncTinker08(cosmo_ccl)
         
         dn_dM = np.array([mass_funct.get_mass_function(cosmo_ccl, masses, a) for a in scale_fact_a])
         return dn_dM
@@ -124,26 +131,26 @@ class Model():
         
         theta_cosmo = theta[:len(self.theta_fiducial)]
         theta_mass_calibration = theta[len(self.theta_fiducial):]
-
         
-        N_counts_true, cosmo_ccl = self.all_n_counts_trapz(self.z_min, self.z_max, self.log10masses_2d, theta_cosmo)
+        N_counts_true, cosmo_ccl = self.all_n_counts_trapz(self.z_min, self.z_max, self.log10masses_2d, theta)
         N_counts_true = np.random.poisson(N_counts_true)
         #N_counts_true = np.round(N_counts_true).astype(int)
         
         results = [self.get_Mz_array(cosmo_ccl, seed, N_counts_true[i], self.z_min[i], self.z_max[i], self.log10masses[0], self.log10masses[-1]) 
                    for i in np.arange(len(N_counts_true))]
-        
         results = np.concatenate(results)
+        
+        #results_bins = [self.get_counts(results[i][:, 0]) for i in np.arange(len(results))]
+        #results_bins = np.concatenate(results_bins).reshape((5, 3)).T.flatten()
         
         mean_Y_500, sigma_logY_500 = self.compute_mass_calibration_params_array(cosmo_ccl, theta_mass_calibration, results[:, 0], results[:, 1])
         Y_500_draws = np.random.lognormal(np.log(mean_Y_500), sigma_logY_500, len(sigma_logY_500))
         
-        # Y_500_draws = np.array([self.get_Y500(mean_Y_500[i], sigma_logY_500[i]) for i in np.arange(len(sigma_logY_500))])
-        return  Y_500_draws
+        zY_500_pairs = np.stack((results[:, 1], Y_500_draws)).T
+        return zY_500_pairs  #results_bins
     
     ############# ~~~~~~~~~~~~ FOR MOCK (M, z) PAIRS ~~~~~~~~~~~~ #############
-    def get_Mz_array(self, cosmo_ccl, seed, N, z_min, z_max, M_min, M_max, n_grid_z= 1000, n_grid_M = 1000): #n_grid_z= 1000, n_grid_M = 5000):
-    
+    def get_Mz_array(self, cosmo_ccl, seed, N, z_min, z_max, M_min, M_max, n_grid_z= 1000, n_grid_M = 20000):
         np.random.seed(seed) 
         
         z_array = np.linspace(z_min, z_max, num = n_grid_z)
@@ -151,8 +158,9 @@ class Model():
         z_array_flat = np.repeat(z_array.reshape(len(z_array), 1), len(masses), axis = 1).flatten()
         masses_flat = np.repeat(masses.reshape(1, len(masses)), len(z_array), axis = 0).flatten()
         
-        
         hmf = self.halo_mass_function(cosmo_ccl, masses, z_array)
+        #mass_funct = ccl.halos.hmfunc.MassFuncTinker08(cosmo_ccl)
+        #hmf = self.halo_mass_function2(mass_funct, cosmo_ccl, masses, z_array)
         hmf_sums = hmf.sum(axis = 1, keepdims= True)
         prob_norm_M_z = hmf/hmf_sums
         
@@ -172,10 +180,20 @@ class Model():
         
         return np.stack((masses_vals, z_vals)).T
     
-    def get_M_vals(self, masses, hmf_norm, size):
+    def halo_mass_function2(self, mass_funct, cosmo_ccl, masses, z):
+        scale_fact_a = 1 / (1 + z)
         
-        M_values = np.random.choice(masses, size = size, p = hmf_norm)
-        return M_values
+        # using Sheth et al. (1999) halo mass function - but we could extend it to other halo mass functions
+        # mass_funct = ccl.halos.hmfunc.MassFuncTinker08(cosmo_ccl)
+        
+        dn_dM = np.array([mass_funct.get_mass_function(cosmo_ccl, masses, a) for a in scale_fact_a])
+        return dn_dM
+    
+    def get_counts(self, arr_m):
+        count_1 = len(arr_m[(arr_m >= 10**(14.0)) & (arr_m <10**(14.5))])
+        count_2 = len(arr_m[(arr_m >= 10**(14.5)) & (arr_m <10**(15.0))])
+        count_3 = len(arr_m[(arr_m >= 10**(15.0))])
+        return np.array([count_1, count_2, count_3])
     
     def compute_mass_calibration_params_array(self, cosmo_ccl, theta_mass_calibration, M_500, z):
         t1 = time.process_time()
@@ -206,6 +224,9 @@ class Model():
     def get_Y500(self, mean_Y_500, sigma_logY_500):
         return np.random.lognormal(mean_Y_500, sigma_logY_500, 1)[0]
 
+        
+        
+   
 
 
 

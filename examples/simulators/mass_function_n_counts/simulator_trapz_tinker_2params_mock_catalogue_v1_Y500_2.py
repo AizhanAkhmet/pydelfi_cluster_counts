@@ -135,11 +135,12 @@ class Model():
         
         results = np.concatenate(results)
         
-        mean_Y_500, sigma_logY_500 = self.compute_mass_calibration_params_array(cosmo_ccl, theta_mass_calibration, results[:, 0], results[:, 1])
+        mean_Y_500, sigma_logY_500 = self.compute_scatter_params_array(cosmo_ccl, theta_mass_calibration, results[:, 0], results[:, 1])
         Y_500_draws = np.random.lognormal(np.log(mean_Y_500), sigma_logY_500, len(sigma_logY_500))
         
+        zY_500_pairs = np.stack((results[:, 1], Y_500_draws)).T
         # Y_500_draws = np.array([self.get_Y500(mean_Y_500[i], sigma_logY_500[i]) for i in np.arange(len(sigma_logY_500))])
-        return  Y_500_draws
+        return  zY_500_pairs
     
     ############# ~~~~~~~~~~~~ FOR MOCK (M, z) PAIRS ~~~~~~~~~~~~ #############
     def get_Mz_array(self, cosmo_ccl, seed, N, z_min, z_max, M_min, M_max, n_grid_z= 1000, n_grid_M = 1000): #n_grid_z= 1000, n_grid_M = 5000):
@@ -167,8 +168,13 @@ class Model():
         indices_array = np.arange(len(prob_norm_Mz_flat))
         indices_values = np.random.choice(indices_array, size = N, p = prob_norm_Mz_flat, replace = False)
         
+        #m_indices_values = indices_values%n_grid_M
+        #z_indices_values = indices_values//n_grid_M
+        
         masses_vals = np.take(masses_flat, indices_values)
         z_vals = np.take(z_array_flat, indices_values)
+        #masses_vals = np.take(masses, m_indices_values)
+        #z_vals = np.take(z_array, z_indices_values)
         
         return np.stack((masses_vals, z_vals)).T
     
@@ -177,7 +183,7 @@ class Model():
         M_values = np.random.choice(masses, size = size, p = hmf_norm)
         return M_values
     
-    def compute_mass_calibration_params_array(self, cosmo_ccl, theta_mass_calibration, M_500, z):
+    def compute_scatter_params_array(self, cosmo_ccl, theta_mass_calibration, M_500, z):
         t1 = time.process_time()
         alpha_Y = theta_mass_calibration[0]
         beta_Y = theta_mass_calibration[1]
